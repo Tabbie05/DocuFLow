@@ -1,97 +1,109 @@
-// app/api/latex/compile/route.js
-import fetch from 'node-fetch';
-
 export async function POST(request) {
   try {
-    const { content } = await request.json();
+    const body = await request.json();
+    const { content } = body;
 
     if (!content || !content.trim()) {
-      return new Response(
-        JSON.stringify({ error: 'No content provided' }), 
-        { status: 400 }
-      );
+      return Response.json({ 
+        error: 'No LaTeX content provided' 
+      }, { status: 400 });
     }
 
-    // Method 1: Try latexonline.cc
-    try {
-      const formData = new URLSearchParams();
-      formData.append('text', content);
-      formData.append('command', 'pdflatex');
+    console.log('📝 Compilation request');
+    console.log('📄 Content length:', content.length, 'characters');
 
-      const response = await fetch('https://latexonline.cc/compile', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: formData.toString()
-      });
+    const serviceUrl = process.env.LATEX_SERVICE_URL;
+    
+    if (!serviceUrl) {
+      console.error('❌ LATEX_SERVICE_URL not configured');
+      return Response.json({ 
+        error: 'Service not configured',
+        hint: 'Set LATEX_SERVICE_URL in .env.local'
+      }, { status: 500 });
+    }
 
-      if (response.ok) {
-        const pdfBuffer = await response.buffer();
-        
-        return new Response(pdfBuffer, {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/pdf',
-            'Content-Disposition': 'inline; filename="document.pdf"',
-          },
-        });
+    console.log('🔗 Service URL:', serviceUrl);
+
+    // 2-MINUTE TIMEOUT for large resumes
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120 seconds
+
+    console.log('⏳ Calling LaTeX service (2 min timeout)...');
+
+    const response = await fetch(`${serviceUrl}/compile`, {
+      method: 'POST',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/pdf'
+      },
+      body: JSON.stringify({ content }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    console.log('📡 Response status:', response.status);
+
+    if (!response.ok) {
+      let errorMessage = 'Compilation failed';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.details || errorMessage;
+        console.error('❌ Service error:', errorMessage);
+      } catch (e) {
+        const text = await response.text();
+        errorMessage = text || errorMessage;
       }
-    } catch (error) {
-      console.log('LaTeX Online failed, trying alternative...');
+      
+      return Response.json({ 
+        error: errorMessage
+      }, { status: response.status });
     }
 
-    // Method 2: Try latex.ytotech.com
-    try {
-      const response = await fetch('https://latex.ytotech.com/builds/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          compiler: 'pdflatex',
-          resources: [{
-            main: true,
-            file: 'main.tex',
-            content: content
-          }]
-        })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        
-        if (result.result && result.result.pdf) {
-          // Decode base64 PDF
-          const pdfBuffer = Buffer.from(result.result.pdf, 'base64');
-          
-          return new Response(pdfBuffer, {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/pdf',
-              'Content-Disposition': 'inline; filename="document.pdf"',
-            },
-          });
-        }
-      }
-    } catch (error) {
-      console.log('YToTech failed');
+    const pdfBuffer = await response.arrayBuffer();
+    
+    if (pdfBuffer.byteLength === 0) {
+      console.error('❌ Empty PDF received');
+      return Response.json({ 
+        error: 'Service returned empty PDF' 
+      }, { status: 500 });
     }
 
-    // If both methods fail
-    return new Response(
-      JSON.stringify({ 
-        error: 'LaTeX compilation failed. Please check your syntax.',
-        details: 'All compilation services are unavailable or returned errors.'
-      }), 
-      { status: 500 }
-    );
+    console.log('✅ PDF received:', pdfBuffer.byteLength, 'bytes');
 
-  } catch (err) {
-    console.error('Server error:', err);
-    return new Response(
-      JSON.stringify({ error: err.message }), 
-      { status: 500 }
-    );
+    return new Response(pdfBuffer, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': 'inline; filename="document.pdf"',
+        'Content-Length': pdfBuffer.byteLength.toString(),
+        'Cache-Control': 'no-cache',
+      },
+    });
+
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error('❌ Timeout after 2 minutes');
+      return Response.json({ 
+        error: 'Compilation timeout after 2 minutes',
+        hint: 'Document may be too complex. Try simplifying or removing packages.'
+      }, { status: 504 });
+    }
+    
+    console.error('❌ Error:', error.message);
+    return Response.json({ 
+      error: error.message || 'Internal server error'
+    }, { status: 500 });
   }
+}
+
+export async function GET() {
+  const serviceUrl = process.env.LATEX_SERVICE_URL;
+  
+  return Response.json({ 
+    message: 'LaTeX Compilation API',
+    serviceUrl: serviceUrl || 'Not configured',
+    timeout: '120 seconds',
+    configured: !!serviceUrl
+  });
 }
