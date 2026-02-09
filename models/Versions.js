@@ -8,27 +8,21 @@ const VersionSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-
     content: {
       type: String,
       required: true,
     },
-
     label: {
       type: String,
-      default: "",
+      default: "Auto-save",
     },
   },
   { timestamps: true }
 );
 
-export default mongoose.models.Version ||
-  mongoose.model("Version", VersionSchema);
-
-  
+export default mongoose.models.Version || mongoose.model("Version", VersionSchema);

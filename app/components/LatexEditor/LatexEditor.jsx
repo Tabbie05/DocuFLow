@@ -36,7 +36,12 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
   const loadVersions = async () => {
     try {
       const res = await fetch(`/api/versions/${file._id}`);
+      if (!res.ok) {
+        console.error("Failed to load versions:", res.status);
+        return;
+      }
       const data = await res.json();
+      console.log("Loaded versions:", data);
       setVersions(data);
     } catch (err) {
       console.error("Failed to load versions", err);
@@ -45,7 +50,7 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
 
   const saveVersion = async (contentToSave) => {
     try {
-      await fetch('/api/versions', {
+      const res = await fetch('/api/versions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -54,7 +59,16 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
           label: 'Auto-save'
         }),
       });
-      console.log('📸 Version saved');
+      
+      if (res.ok) {
+        console.log('📸 Version saved');
+        // Reload versions if panel is open
+        if (showVersions) {
+          loadVersions();
+        }
+      } else {
+        console.error("Version save failed:", res.status);
+      }
     } catch (err) {
       console.error("Failed to save version", err);
     }
@@ -63,12 +77,16 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
   const restoreVersion = (oldContent) => {
     setContent(oldContent);
     lastCompiledContent.current = "";
-    saveVersion(oldContent); // Save restoration as new version
+    saveVersion(oldContent);
+    setShowVersions(false); // Close panel after restore
   };
 
   const toggleVersionsPanel = () => {
-    setShowVersions(prev => !prev);
-    loadVersions();
+    const newState = !showVersions;
+    setShowVersions(newState);
+    if (newState) {
+      loadVersions();
+    }
   };
 
   // expose toggle to parent (Toolbar button)
@@ -76,13 +94,13 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
     if (onToggleVersionsRef) {
       onToggleVersionsRef.current = toggleVersionsPanel;
     }
-  }, []);
+  }, [showVersions]);
 
   // ================= AUTO SAVE WITH VERSION =================
   useAutoSave(content, async (contentToSave) => {
     await onSave(contentToSave);
-    // Save version every 5 changes or 30 seconds
-    const shouldSaveVersion = Math.random() < 0.2; // 20% chance (adjust as needed)
+    // Save version every ~5 edits (20% chance)
+    const shouldSaveVersion = Math.random() < 0.2;
     if (shouldSaveVersion) {
       await saveVersion(contentToSave);
     }
@@ -90,7 +108,10 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
 
   // ================= SOCKET.IO CONNECTION =================
   useEffect(() => {
+    // Get socket URL from environment variable
     const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+    
+    console.log("Connecting to socket server:", SOCKET_URL);
     
     socketRef.current = io(SOCKET_URL, {
       transports: ['websocket', 'polling'],
@@ -121,7 +142,6 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
       console.log(`📝 Received changes from ${username}`);
       isRemoteChange.current = true;
       setContent(newContent);
-      // Don't recompile immediately for remote changes
       setTimeout(() => {
         isRemoteChange.current = false;
       }, 100);
@@ -153,9 +173,7 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
 
   // ================= AUTO COMPILE =================
   useEffect(() => {
-    // Skip compilation for remote changes
     if (isRemoteChange.current) return;
-    
     if (content === lastCompiledContent.current) return;
 
     if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
@@ -223,6 +241,7 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
       lastCompiledContent.current = codeToCompile;
       setCompilesCount(prev => prev + 1);
     } catch (err) {
+      console.error("Compilation error:", err);
       setError(err.message);
       setPdfUrl(null);
       setPdfBlob(null);
@@ -232,7 +251,6 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
   };
 
   const handleEditorChange = (value) => {
-    // Don't emit if this was a remote change
     if (isRemoteChange.current) {
       return;
     }
@@ -252,7 +270,7 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
   const handleLatexGenerated = (newLatex) => {
     setContent(newLatex);
     lastCompiledContent.current = "";
-    saveVersion(newLatex); // Save AI-generated content as version
+    saveVersion(newLatex);
   };
 
   // ================= LAYOUT WIDTHS =================
@@ -286,12 +304,24 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
             )}
           </div>
 
-          <button 
-            onClick={() => setShowAIPanel(!showAIPanel)}
-            className="text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600"
-          >
-            🤖 AI
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={toggleVersionsPanel}
+              className={`text-xs px-2 py-1 rounded transition-colors ${
+                showVersions 
+                  ? 'bg-blue-600 text-white' 
+                  : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+              }`}
+            >
+              📜 Versions
+            </button>
+            <button 
+              onClick={() => setShowAIPanel(!showAIPanel)}
+              className="text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600"
+            >
+              🤖 AI
+            </button>
+          </div>
         </div>
 
         <MonacoEditor
@@ -323,12 +353,12 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
 
       {/* VERSION HISTORY PANEL */}
       {showVersions && (
-        <div style={{ width: "22%" }} className="bg-gray-950 border-l border-gray-700 flex flex-col">
+        <div style={{ width: "22%" }} className="bg-gray-950 border-l border-gray-700 flex flex-col absolute right-0 top-0 bottom-0 z-50 shadow-2xl">
           <div className="p-3 border-b border-gray-700 flex items-center justify-between">
             <span className="font-bold text-sm">Version History</span>
             <button 
               onClick={() => setShowVersions(false)}
-              className="text-gray-500 hover:text-white"
+              className="text-gray-500 hover:text-white transition-colors"
             >
               ✕
             </button>
@@ -336,7 +366,12 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
 
           <div className="flex-1 overflow-y-auto">
             {versions.length === 0 && (
-              <p className="text-center text-gray-500 text-xs p-4">No versions yet</p>
+              <div className="p-4 text-center">
+                <p className="text-gray-500 text-xs">No versions yet</p>
+                <p className="text-gray-600 text-xs mt-2">
+                  Versions are saved automatically as you edit
+                </p>
+              </div>
             )}
             {versions.map((v) => (
               <div
@@ -353,6 +388,9 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef }) {
                 {v.label && (
                   <p className="text-xs text-gray-500 mt-1">{v.label}</p>
                 )}
+                <p className="text-xs text-gray-600 mt-1">
+                  {v.content.length} characters
+                </p>
               </div>
             ))}
           </div>
