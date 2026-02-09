@@ -44,21 +44,20 @@ export async function POST(request) {
 
     console.log('📡 Response status:', response.status);
 
-    if (!response.ok) {
-      let errorMessage = 'Compilation failed';
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorData.details || errorMessage;
-        console.error('❌ Service error:', errorMessage);
-      } catch (e) {
-        const text = await response.text();
-        errorMessage = text || errorMessage;
-      }
-      
-      return Response.json({ 
-        error: errorMessage
-      }, { status: response.status });
-    }
+   if (!response.ok) {
+  let errorMessage = 'Compilation failed';
+
+  const text = await response.text();
+
+  try {
+    const errorData = JSON.parse(text);
+    errorMessage = errorData.error || errorData.details || text;
+  } catch {
+    errorMessage = text;
+  }
+
+  return Response.json({ error: errorMessage }, { status: response.status });
+}
 
     const pdfBuffer = await response.arrayBuffer();
     

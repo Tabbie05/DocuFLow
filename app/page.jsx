@@ -1,8 +1,17 @@
 'use client';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 export default function HomePage() {
+  useEffect(() => {
+  fetch("/api/me")
+    .then(res => res.json())
+    .then(user => {
+      if (!user) window.location.href = "/login";
+    });
+}, []);
+
   const router = useRouter();
   
   // TEMPORARY: Hardcoded test projectId

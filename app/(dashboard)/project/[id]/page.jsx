@@ -4,6 +4,8 @@ import { useParams } from 'next/navigation';
 import FileTree from '../../../components/FIle-Tree/FileTree/FileTree';
 import LatexEditor from '../../../components/LatexEditor/LatexEditor';
 import Toolbar from '../../../components/Editor/Toolbar';
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function ProjectPage() {
   const params = useParams();
@@ -16,6 +18,16 @@ export default function ProjectPage() {
       setSelectedFile(file);
     }
   };
+  const router = useRouter();
+
+useEffect(() => {
+  fetch("/api/me")
+    .then(res => res.json())
+    .then(user => {
+      if (!user) router.push("/login");
+    });
+}, []);
+
 
   const handleFileSave = async (content) => {
     if (!selectedFile) return;

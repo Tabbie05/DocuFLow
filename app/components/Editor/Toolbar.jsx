@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 
-export default function Toolbar({ projectId, selectedFile }) {
+export default function Toolbar({ projectId, selectedFile, onToggleVersions }) {
   const [isDownloading, setIsDownloading] = useState(false);
 
   const handleDownloadPDF = async () => {
@@ -160,6 +160,15 @@ export default function Toolbar({ projectId, selectedFile }) {
             </>
           )}
         </button>
+
+        <button
+  onClick={onToggleVersions}
+  className="text-xs bg-gray-700 text-gray-300 px-2.5 py-1 rounded-md font-semibold hover:bg-gray-600"
+>
+  🕒 Versions
+</button>
+
+
 
         <div className="h-6 w-px bg-gray-700"></div>
 

@@ -2,7 +2,7 @@
 import React, { useEffect } from 'react';
 import useFileTree from '@/hooks/useFileTree';
 import FileNode from '../../../components/FIle-Tree/FileNode/FIleNode';
-import { getLaTeXBoilerplate } from '../../../../lib/latexBoilerplate';
+// import { getLaTeXBoilerplate } from '../../../../lib/latexBoilerplate';
 
 export default function FileTree({ projectId, onFileSelect }) {
   const { files, fetchFiles, addItem, deleteItem, loading, error } = useFileTree(projectId);
