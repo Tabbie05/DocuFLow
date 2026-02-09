@@ -1,5 +1,5 @@
 import connectDB from "@/lib/dbConfig";
-import Version from "@/models/version";
+import Version from "@/models/Versions";
 
 export async function GET(request, { params }) {
   await connectDB();
