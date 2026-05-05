@@ -25,15 +25,18 @@ export async function PUT(request, context) {
     return Response.json({ error: "File not found" }, { status: 404 });
   }
 
-  // ⭐ GET LOGGED USER
-  const token = cookies().get("token")?.value;
-  const session = getSession(token);
+  // Save a version snapshot whenever content actually changed.
+  // Tag it with the logged-in user when there's a session; otherwise anon.
+  if (typeof body.content === "string" && body.content.length > 0) {
+    const cookieStore = await cookies();
+    const token = cookieStore.get("token")?.value;
+    const session = getSession(token);
 
-  if (session) {
     await Version.create({
       fileId: id,
       content: body.content,
-      userId: session.userId, // ⭐ THIS FIXES ERROR
+      userId: session?.userId || null,
+      label: session ? "Auto-save" : "Auto-save (anonymous)",
     });
   }
 

@@ -2,81 +2,84 @@
 import React, { useEffect } from 'react';
 import useFileTree from '@/hooks/useFileTree';
 import FileNode from '../../../components/FIle-Tree/FileNode/FIleNode';
-// import { getLaTeXBoilerplate } from '../../../../lib/latexBoilerplate';
+import { normalizeFileName, getInitialContentFor } from '@/lib/latexBoilerplate';
 
 export default function FileTree({ projectId, onFileSelect }) {
   const { files, fetchFiles, addItem, deleteItem, loading, error } = useFileTree(projectId);
 
   useEffect(() => {
-    if (projectId) {
-      fetchFiles();
-    }
+    if (projectId) fetchFiles();
   }, [projectId]);
 
   const rootFiles = files.filter(f => f.parentId === null);
 
   const handleAddRoot = async (type) => {
-    const name = prompt(`Enter ${type} name:`);
-    if (!name || !name.trim()) return;
+    const raw = prompt(`New ${type} name:`);
+    if (!raw || !raw.trim()) return;
 
-    const content = type === 'file' && name.endsWith('.tex') 
-      ? getLaTeXBoilerplate(name.replace('.tex', ''))
-      : '';
-
-    await addItem(name.trim(), type, null, content);
+    if (type === 'file') {
+      const name = normalizeFileName(raw);
+      await addItem(name, 'file', null, getInitialContentFor(name));
+    } else {
+      await addItem(raw.trim(), 'folder', null, '');
+    }
   };
 
   return (
-    <div className="h-full flex flex-col bg-gray-900 text-gray-200">
+    <div className="h-full flex flex-col text-white/90">
       {/* Header */}
-      <div className="p-3 border-b border-gray-800">
-        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-          📁 Files
+      <div className="px-3 py-3 border-b border-white/5">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[10px] font-bold uppercase tracking-[0.15em] text-white/45">
+            Files
+          </span>
+          <span className="text-[10px] text-white/30 font-mono">{rootFiles.length}</span>
         </div>
-        
-        <div className="flex gap-2">
+
+        <div className="flex gap-1.5">
           <button
             onClick={() => handleAddRoot('file')}
-            className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs py-2 px-2 rounded transition-colors font-medium"
+            className="flex-1 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-violet-500/15 hover:bg-violet-500/25 border border-violet-400/30 text-violet-100 backdrop-blur-md transition-all"
           >
-            + File
+            <span>＋</span> File
           </button>
           <button
             onClick={() => handleAddRoot('folder')}
-            className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs py-2 px-2 rounded transition-colors font-medium"
+            className="flex-1 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/30 text-cyan-100 backdrop-blur-md transition-all"
           >
-            + Folder
+            <span>＋</span> Folder
           </button>
         </div>
       </div>
 
-      {/* File List */}
+      {/* List */}
       <div className="flex-1 overflow-auto p-2">
         {loading && (
-          <div className="text-center text-gray-400 py-8 text-sm">
-            <div className="animate-pulse">Loading...</div>
+          <div className="flex items-center justify-center py-8 text-xs text-white/45">
+            <span className="h-3 w-3 mr-2 rounded-full border-2 border-violet-400/40 border-t-violet-400 animate-spin" />
+            Loading…
           </div>
         )}
-        
+
         {error && (
-          <div className="bg-red-900 bg-opacity-20 border border-red-700 text-red-400 px-3 py-2 rounded text-xs">
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
             {error}
           </div>
         )}
 
-        {!loading && rootFiles.length === 0 && (
-          <div className="text-center text-gray-600 text-xs py-8 border border-dashed border-gray-700 rounded">
-            <div className="mb-2">📂</div>
-            <div>No files yet</div>
-            <div className="text-gray-700 mt-1 text-xs">Click + File to start</div>
+        {!loading && rootFiles.length === 0 && !error && (
+          <div className="text-center py-10 px-3 rounded-xl border border-dashed border-white/10 bg-white/[0.02]">
+            <div className="text-3xl mb-2 opacity-50">📂</div>
+            <div className="text-xs text-white/55 font-medium">No files yet</div>
+            <div className="text-[10px] text-white/30 mt-1">Click + File to get started</div>
           </div>
         )}
-        
+
         {rootFiles.map(file => (
-          <FileNode 
-            key={file._id} 
-            file={file} 
-            files={files} 
+          <FileNode
+            key={file._id}
+            file={file}
+            files={files}
             addItem={addItem}
             deleteItem={deleteItem}
             onFileSelect={onFileSelect}

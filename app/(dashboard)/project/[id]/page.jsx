@@ -1,73 +1,65 @@
 'use client';
-import { useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useState, useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import FileTree from '../../../components/FIle-Tree/FileTree/FileTree';
 import LatexEditor from '../../../components/LatexEditor/LatexEditor';
 import Toolbar from '../../../components/Editor/Toolbar';
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 
 export default function ProjectPage() {
   const params = useParams();
   const projectId = params.id;
+  const router = useRouter();
   const [selectedFile, setSelectedFile] = useState(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [showAIPanel, setShowAIPanel] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/me')
+      .then(res => res.json())
+      .then(user => {
+        if (!user || !user.userId) router.push('/login');
+      });
+  }, []);
 
   const handleFileSelect = (file) => {
-    if (file.type === 'file') {
-      setSelectedFile(file);
-    }
+    if (file.type === 'file') setSelectedFile(file);
   };
-  const router = useRouter();
-
-useEffect(() => {
-  fetch("/api/me")
-    .then(res => res.json())
-    .then(user => {
-      if (!user) router.push("/login");
-    });
-}, []);
-
 
   const handleFileSave = async (content) => {
     if (!selectedFile) return;
-
     try {
-      const res = await fetch(`/api/files/${selectedFile._id}`, {
+      await fetch(`/api/files/${selectedFile._id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
       });
-
-      if (res.ok) {
-        console.log('✅ Auto-saved!');
-      }
-    } catch (error) {
-      console.error('Save error:', error);
-    }
+    } catch {}
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900">
-      {/* Top Bar with Gradient */}
-      <Toolbar projectId={projectId} selectedFile={selectedFile} />
+    <div className="aurora-bg flex flex-col h-screen overflow-hidden">
+      <Toolbar
+        projectId={projectId}
+        selectedFile={selectedFile}
+        showAIPanel={showAIPanel}
+        onToggleAI={() => setShowAIPanel((p) => !p)}
+      />
 
-      {/* Main Content */}
       <div className="flex flex-1 overflow-hidden">
-        {/* LEFT: File Tree with Collapse */}
-        <div 
-          className={`border-r border-gray-700 bg-gradient-to-b from-gray-900 to-gray-950 transition-all duration-300 ${
+        {/* SIDEBAR */}
+        <div
+          className={`relative border-r border-white/5 bg-[#0a0a10]/60 backdrop-blur-xl transition-all duration-300 ${
             isSidebarCollapsed ? 'w-12' : 'w-64'
           }`}
         >
-          {/* Collapse Button */}
           <button
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="w-full h-10 flex items-center justify-center border-b border-gray-700 hover:bg-gray-800 transition-colors"
+            className="w-full h-9 flex items-center justify-center border-b border-white/5 hover:bg-white/5 transition-all text-white/45 hover:text-white"
+            title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
-            <span className="text-gray-400">
-              {isSidebarCollapsed ? '→' : '←'}
-            </span>
+            <svg className={`w-3.5 h-3.5 transition-transform ${isSidebarCollapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
           </button>
 
           {!isSidebarCollapsed && (
@@ -75,45 +67,76 @@ useEffect(() => {
           )}
         </div>
 
-        {/* CENTER + RIGHT: Editor + Preview */}
+        {/* MAIN */}
         <div className="flex-1 relative">
           {selectedFile ? (
-            <LatexEditor 
+            <LatexEditor
               key={selectedFile._id}
               file={selectedFile}
               onSave={handleFileSave}
+              showAIPanel={showAIPanel}
+              onAIPanelClose={() => setShowAIPanel(false)}
             />
           ) : (
-            <div className="flex items-center justify-center h-full bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
-              <div className="text-center max-w-md p-8 bg-gray-800/50 backdrop-blur-sm rounded-2xl shadow-2xl border border-gray-700">
-                <div className="text-7xl mb-6 animate-bounce">📝</div>
-                <h2 className="text-3xl text-white font-bold mb-3 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  Welcome to DocuFlow
-                </h2>
-                <p className="text-gray-400 text-base mb-6">
-                  Select a file from the sidebar to start editing, or create a new file to begin your document.
-                </p>
-                <div className="flex gap-3 justify-center">
-                  <button className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all transform hover:scale-105">
-                    New File
-                  </button>
-                  <button className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-all transform hover:scale-105">
-                    Templates
-                  </button>
-                </div>
-              </div>
-            </div>
+            <WelcomeState />
           )}
 
-          {/* Auto-save Indicator */}
           {selectedFile && (
-            <div className="absolute top-4 right-4 bg-gray-800 px-3 py-1.5 rounded-full shadow-lg border border-gray-700">
-              <div className="flex items-center gap-2">
-                <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-xs text-gray-300">Auto-saving</span>
-              </div>
+            <div
+              className="absolute top-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/40 backdrop-blur-xl shadow-lg shadow-emerald-500/10 transition-all duration-200"
+              style={{ right: showAIPanel ? 'calc(30% + 1rem)' : '1rem' }}
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[11px] font-medium text-emerald-200">Auto-saving</span>
             </div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WelcomeState() {
+  return (
+    <div className="relative h-full flex items-center justify-center p-6 overflow-hidden">
+      <div className="absolute -top-20 left-1/2 -translate-x-1/2 h-72 w-[600px] bg-violet-500/15 blur-3xl rounded-full pointer-events-none" />
+      <div className="absolute -bottom-20 right-10 h-64 w-64 bg-cyan-500/15 blur-3xl rounded-full pointer-events-none" />
+
+      <div className="relative max-w-xl w-full">
+        <div className="glow-border p-10 text-center animate-fade-up">
+          <div className="mx-auto h-20 w-20 rounded-3xl bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400 shadow-2xl shadow-violet-500/40 flex items-center justify-center text-4xl mb-6 animate-float-slow">
+            ✨
+          </div>
+          <span className="chip"><span className="chip-dot" /> Ready when you are</span>
+          <h2 className="mt-5 text-4xl md:text-5xl font-black tracking-tight">
+            <span className="text-gradient">Welcome to your canvas.</span>
+          </h2>
+          <p className="mt-4 text-white/60 text-base">
+            Pick a file from the sidebar, or create one to start writing.<br/>
+            <span className="text-white/40 text-sm">LaTeX, Markdown, or plain code — all supported.</span>
+          </p>
+
+          <div className="mt-8 grid grid-cols-3 gap-3 text-left">
+            <div className="glass p-3">
+              <div className="text-lg mb-1">⚡</div>
+              <div className="text-[11px] font-semibold">Live preview</div>
+              <div className="text-[10px] text-white/45 mt-0.5">Compile as you type</div>
+            </div>
+            <div className="glass p-3">
+              <div className="text-lg mb-1">🤝</div>
+              <div className="text-[11px] font-semibold">Real-time</div>
+              <div className="text-[10px] text-white/45 mt-0.5">Edit together live</div>
+            </div>
+            <div className="glass p-3">
+              <div className="text-lg mb-1">🤖</div>
+              <div className="text-[11px] font-semibold">AI assist</div>
+              <div className="text-[10px] text-white/45 mt-0.5">Drafts & fixes</div>
+            </div>
+          </div>
+
+          <p className="mt-7 text-[11px] text-white/30 font-mono">
+            Tip: press <kbd className="px-1.5 py-0.5 rounded bg-white/10 border border-white/10">⌘K</kbd> for the command bar
+          </p>
         </div>
       </div>
     </div>

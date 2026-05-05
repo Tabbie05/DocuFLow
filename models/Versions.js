@@ -11,7 +11,8 @@ const VersionSchema = new mongoose.Schema(
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true,
+      required: false, // optional so anonymous edits still produce versions
+      default: null,
     },
     content: {
       type: String,

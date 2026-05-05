@@ -2,11 +2,12 @@
 import { useRef } from 'react';
 import Editor from '@monaco-editor/react';
 
-export default function MonacoEditor({ value, onChange, language = 'latex' }) {
+export default function MonacoEditor({ value, onChange, language = 'latex', editorApiRef }) {
   const editorRef = useRef(null);
 
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
+    if (editorApiRef) editorApiRef.current = { editor, monaco };
 
     // Custom LaTeX theme
     monaco.editor.defineTheme('latex-dark', {

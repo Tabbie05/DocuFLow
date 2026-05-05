@@ -3,6 +3,7 @@ import Project from "../../../models/Project";
 
 
 export async function POST(request) {
+  await connectDB();
   const { name } = await request.json();
   if (!name) {
     return new Response(JSON.stringify({ error: "Name is required" }), { status: 400 });
