@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import FileTree from '../../../components/FIle-Tree/FileTree/FileTree';
 import LatexEditor from '../../../components/LatexEditor/LatexEditor';
@@ -13,6 +13,13 @@ export default function ProjectPage() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showAIPanel, setShowAIPanel] = useState(false);
   const [showVersions, setShowVersions] = useState(false);
+  const [isCompiling, setIsCompiling] = useState(false);
+
+  // Toolbar and LatexEditor are siblings, so these refs bridge them:
+  // LatexEditor installs its compile fn and mirrors the live editor text,
+  // and the Toolbar reads both at click time.
+  const compileNowRef = useRef(null);
+  const liveContentRef = useRef('');
 
   useEffect(() => {
     fetch('/api/me')
@@ -23,7 +30,15 @@ export default function ProjectPage() {
   }, []);
 
   const handleFileSelect = (file) => {
-    if (file.type === 'file') setSelectedFile(file);
+    if (file.type !== 'file') return;
+    if (file._id !== selectedFile?._id) {
+      // LatexEditor is keyed by file id, so the old instance is about to die.
+      // Drop refs pointing at it so a click in the gap can't hit stale state.
+      compileNowRef.current = null;
+      liveContentRef.current = file.content || '';
+      setIsCompiling(false);
+    }
+    setSelectedFile(file);
   };
 
   const handleFileSave = async (content) => {
@@ -38,10 +53,13 @@ export default function ProjectPage() {
   };
 
   return (
-    <div className="aurora-bg flex flex-col h-screen overflow-hidden">
+    <div className="editor-shell aurora-bg flex flex-col h-screen layout-clip">
       <Toolbar
         projectId={projectId}
         selectedFile={selectedFile}
+        liveContentRef={liveContentRef}
+        isCompiling={isCompiling}
+        onCompileNow={() => compileNowRef.current?.()}
         showAIPanel={showAIPanel}
         onToggleAI={() => {
           setShowAIPanel((p) => {
@@ -60,16 +78,16 @@ export default function ProjectPage() {
         }}
       />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 min-h-0 layout-clip">
         {/* SIDEBAR */}
         <div
-          className={`relative border-r border-white/5 bg-[#0a0a10]/60 backdrop-blur-xl transition-all duration-300 ${
+          className={`relative shrink-0 flex flex-col min-h-0 layout-clip border-r border-white/5 bg-[#0a0a10]/60 backdrop-blur-xl transition-all duration-300 ${
             isSidebarCollapsed ? 'w-12' : 'w-64'
           }`}
         >
           <button
             onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="w-full h-9 flex items-center justify-center border-b border-white/5 hover:bg-white/5 transition-all text-white/45 hover:text-white"
+            className="w-full h-9 shrink-0 flex items-center justify-center border-b border-white/5 hover:bg-white/5 transition-all text-white/45 hover:text-white"
             title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             <svg className={`w-3.5 h-3.5 transition-transform ${isSidebarCollapsed ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -83,12 +101,15 @@ export default function ProjectPage() {
         </div>
 
         {/* MAIN */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative min-w-0 min-h-0">
           {selectedFile ? (
             <LatexEditor
               key={selectedFile._id}
               file={selectedFile}
               onSave={handleFileSave}
+              compileNowRef={compileNowRef}
+              liveContentRef={liveContentRef}
+              onCompilingChange={setIsCompiling}
               showAIPanel={showAIPanel}
               onAIPanelClose={() => setShowAIPanel(false)}
               showVersions={showVersions}
@@ -101,7 +122,13 @@ export default function ProjectPage() {
           {selectedFile && (
             <div
               className="absolute top-4 z-50 flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-400/40 backdrop-blur-xl shadow-lg shadow-emerald-500/10 transition-all duration-200"
-              style={{ right: showAIPanel ? 'calc(30% + 1rem)' : '1rem' }}
+              style={{
+                right: showAIPanel
+                  ? 'calc(380px + 1rem)'   // AI drawer width
+                  : showVersions
+                  ? 'calc(320px + 1rem)'   // Versions panel width
+                  : '1rem',
+              }}
             >
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span className="text-[11px] font-medium text-emerald-200">Auto-saving</span>

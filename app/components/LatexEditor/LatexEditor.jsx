@@ -27,6 +27,7 @@ export default function LatexEditor({
   const [pdfBlob, setPdfBlob] = useState(null);
   const [isCompiling, setIsCompiling] = useState(false);
   const [error, setError] = useState(null);
+  const [errorDetails, setErrorDetails] = useState(null);
   const [compilesCount, setCompilesCount] = useState(0);
   const socketRef = useRef(null);
   const [activeUsers, setActiveUsers] = useState([]);
@@ -53,11 +54,30 @@ export default function LatexEditor({
   const [autoCompilePaused, setAutoCompilePaused] = useState(false);
 
   // ================= EDITOR ACTIONS =================
+  // Monaco's editor.focus() takes no options, so there is no { preventScroll }
+  // available, and in 0.55 the focus target is either textarea.inputarea or
+  // div.native-edit-context depending on the EditContext path — so don't reach
+  // into its DOM. Snapshot ancestor scroll, focus, restore. Focus-scrolling is
+  // synchronous, so nothing ever paints in the scrolled position.
+  const focusEditorPreservingScroll = () => {
+    const api = editorApiRef.current;
+    if (!api?.editor) return;
+    const saved = [];
+    for (let n = containerRef.current; n && n !== document.documentElement; n = n.parentElement) {
+      saved.push([n, n.scrollTop, n.scrollLeft]);
+    }
+    api.editor.focus();
+    for (const [n, top, left] of saved) {
+      if (n.scrollTop !== top) n.scrollTop = top;
+      if (n.scrollLeft !== left) n.scrollLeft = left;
+    }
+  };
+
   const withEditor = (fn) => {
     const api = editorApiRef.current;
     if (!api?.editor) return;
     fn(api.editor, api.monaco);
-    api.editor.focus();
+    focusEditorPreservingScroll();
   };
 
   const wrapSelection = (before, after = '') => {
@@ -168,18 +188,21 @@ export default function LatexEditor({
 
   // expose manual compile to parent so the Toolbar's "Compile" button can fire it
   useEffect(() => {
-    if (compileNowRef) {
-      compileNowRef.current = () => {
-        // Manual click resets the circuit breaker — user explicitly asked to retry
-        failureCount.current = 0;
-        setAutoCompilePaused(false);
-        // Bypass debounce + the "same as last compiled" guard
-        lastCompiledContent.current = "";
-        if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
-        compileLatex();
-      };
-    }
+    if (!compileNowRef) return;
+    compileNowRef.current = () => {
+      // Manual click resets the circuit breaker — user explicitly asked to retry
+      failureCount.current = 0;
+      setAutoCompilePaused(false);
+      // Bypass debounce + the "same as last compiled" guard
+      lastCompiledContent.current = "";
+      if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
+      compileLatex();
+    };
+    return () => { compileNowRef.current = null; };
   });
+
+  // If the user switches files mid-compile, don't strand the Toolbar spinner.
+  useEffect(() => () => onCompilingChange?.(false), []);
 
   // ================= AUTO SAVE WITH VERSION =================
   useAutoSave(content, async (contentToSave) => {
@@ -313,6 +336,7 @@ export default function LatexEditor({
     setIsCompiling(true);
     onCompilingChange?.(true);
     setError(null);
+    setErrorDetails(null);
 
     try {
       const response = await fetch('/api/latex/compile', {
@@ -326,7 +350,11 @@ export default function LatexEditor({
         const msg = errorData.hint
           ? `${errorData.error || 'Compilation failed'} — ${errorData.hint}`
           : (errorData.error || 'Compilation failed');
-        throw new Error(msg);
+        // Carry the pdflatex log on the Error so the catch block can surface it.
+        const e = new Error(msg);
+        e.details = errorData.details || '';
+        e.summary = errorData.summary || '';
+        throw e;
       }
 
       const blob = await response.blob();
@@ -350,6 +378,8 @@ export default function LatexEditor({
           ? `${err.message}\n\n⏸ Auto-compile paused after ${FAILURE_LIMIT} failures. Fix the document and click Compile to resume.`
           : err.message
       );
+      const hasLog = Boolean(err.details || err.summary);
+      setErrorDetails(hasLog ? { summary: err.summary || '', log: err.details || '' } : null);
       setPdfUrl(null);
       setPdfBlob(null);
       if (willPause) setAutoCompilePaused(true);
@@ -407,15 +437,19 @@ export default function LatexEditor({
   };
 
   // ================= LAYOUT WIDTHS =================
-  const editorWidth = showAIPanel ? splitPosition * 0.7 : splitPosition;
-  const pdfWidth = showAIPanel ? (100 - splitPosition) * 0.7 : 100 - splitPosition;
-  const aiWidth = showAIPanel ? 30 : 0;
+  // The AI panel is an OVERLAY drawer (same pattern as Version history below),
+  // so it must never resize the editor or the PDF preview. The old `* 0.7`
+  // scaling also broke the drag resizer, which measures against the full
+  // container width while the columns rendered at 70% of it.
+  const AI_DRAWER_WIDTH = 380;
+  const editorWidth = splitPosition;
+  const pdfWidth = 100 - splitPosition;
 
   // ================= UI =================
   return (
-    <div ref={containerRef} className="flex h-full">
+    <div ref={containerRef} className="relative flex h-full min-h-0 min-w-0">
       {/* ===== EDITOR ===== */}
-      <div style={{ width: `${editorWidth}%` }} className="h-full flex flex-col min-h-0 border-r border-white/5">
+      <div style={{ width: `${editorWidth}%` }} className="h-full flex flex-col min-h-0 min-w-0 border-r border-white/5">
         <EditorToolbar
           isConnected={isConnected}
           activeUsers={activeUsers}
@@ -445,26 +479,34 @@ export default function LatexEditor({
       />
 
       {/* PDF PREVIEW */}
-      <div style={{ width: `${pdfWidth}%` }} className="h-full flex flex-col min-h-0 border-r border-white/5">
+      <div style={{ width: `${pdfWidth}%` }} className="h-full flex flex-col min-h-0 min-w-0 border-r border-white/5">
         <PDFPreview
           pdfUrl={pdfUrl}
           isCompiling={isCompiling}
           error={error}
+          errorDetails={errorDetails}
           compilesCount={compilesCount}
         />
       </div>
 
-      {/* AI PANEL */}
-      {showAIPanel && (
-        <div style={{ width: `${aiWidth}%` }} className="h-full flex flex-col min-h-0 border-l border-white/5">
-          <AIPanel
-            existingContent={content}
-            onLatexGenerated={handleLatexGenerated}
-            isVisible={showAIPanel}
-            onClose={() => onAIPanelClose?.()}
-          />
-        </div>
-      )}
+      {/* AI PANEL — overlay drawer. Always mounted so chat history, a
+          half-pasted job description, and any in-flight request survive
+          close/reopen. */}
+      <div
+        inert={!showAIPanel}
+        aria-hidden={!showAIPanel}
+        style={{ width: AI_DRAWER_WIDTH }}
+        className={`absolute right-0 top-0 bottom-0 z-40 max-w-full flex flex-col min-h-0 border-l border-white/10 bg-[#0a0a10]/95 backdrop-blur-xl shadow-2xl shadow-black/60 transition-transform duration-200 ease-out ${
+          showAIPanel ? 'translate-x-0' : 'translate-x-full pointer-events-none'
+        }`}
+      >
+        <AIPanel
+          existingContent={content}
+          onLatexGenerated={handleLatexGenerated}
+          isVisible={showAIPanel}
+          onClose={() => onAIPanelClose?.()}
+        />
+      </div>
 
       {/* VERSION HISTORY PANEL */}
       {showVersions && (
@@ -528,7 +570,7 @@ export default function LatexEditor({
           </div>
 
           {/* LIST */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
             {versions.length === 0 ? (
               <div className="p-6 text-center">
                 <div className="mx-auto h-14 w-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-4">

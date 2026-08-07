@@ -151,38 +151,43 @@ export default function Toolbar({
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
     </svg>
   );
-  const tbBtn = "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all backdrop-blur-md border";
+  const tbBtn = "shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all backdrop-blur-md border";
 
   return (
-    <div className="relative h-14 flex items-center justify-between px-4 border-b border-white/5 bg-gradient-to-r from-[#0a0a0e] via-[#0d0a14] to-[#0a0a0e]">
+    <div className="relative shrink-0 h-14 flex items-center justify-between gap-3 px-4 border-b border-white/5 bg-gradient-to-r from-[#0a0a0e] via-[#0d0a14] to-[#0a0a0e]">
       {/* Subtle top accent line */}
       <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-violet-500/40 to-transparent" />
 
-      {/* LEFT */}
-      <div className="flex items-center gap-3">
+      {/* LEFT — the only shrinkable cluster; the filename truncates */}
+      <div className="flex items-center gap-3 min-w-0 flex-1">
         <Link
           href="/"
-          className="flex items-center gap-1.5 text-white/55 hover:text-white text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-white/5 transition-all"
+          className="shrink-0 flex items-center gap-1.5 text-white/55 hover:text-white text-xs font-medium px-2.5 py-1.5 rounded-lg hover:bg-white/5 transition-all"
         >
           <IconBack />
           Home
         </Link>
 
-        <div className="h-5 w-px bg-white/10" />
+        <div className="h-5 w-px bg-white/10 shrink-0" />
 
-        <div className="flex items-center gap-2">
-          <div className="h-6 w-6 rounded-md bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400 shadow-md shadow-violet-500/30 flex items-center justify-center text-[10px] font-black">D</div>
-          <span className="text-white font-semibold text-sm tracking-tight">DocuFlow</span>
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="h-6 w-6 shrink-0 rounded-md bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400 shadow-md shadow-violet-500/30 flex items-center justify-center text-[10px] font-black">D</div>
+          <span className="text-white font-semibold text-sm tracking-tight shrink-0 hidden sm:inline">DocuFlow</span>
           {selectedFile && (
             <>
-              <span className="text-white/30">/</span>
-              <span className="text-sm font-mono text-gradient-accent">{selectedFile.name}</span>
+              <span className="text-white/30 shrink-0">/</span>
+              <span
+                className="text-sm font-mono text-gradient-accent truncate min-w-0"
+                title={selectedFile.name}
+              >
+                {selectedFile.name}
+              </span>
             </>
           )}
         </div>
 
         {selectedFile && (isCompiling || isDownloading) && (
-          <div className="ml-1 flex items-center gap-2 px-3 py-1 rounded-full bg-violet-500/10 border border-violet-400/30 backdrop-blur-md">
+          <div className="ml-1 shrink-0 flex items-center gap-2 px-3 py-1 rounded-full bg-violet-500/10 border border-violet-400/30 backdrop-blur-md">
             <span className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-pulse" />
             <span className="text-[11px] font-medium text-violet-200">
               {isDownloading ? 'Preparing PDF…' : 'Compiling…'}
@@ -191,8 +196,8 @@ export default function Toolbar({
         )}
       </div>
 
-      {/* RIGHT */}
-      <div className="flex items-center gap-2">
+      {/* RIGHT — never shrinks; labels collapse by breakpoint instead */}
+      <div className="flex items-center gap-2 shrink-0">
         <button
           onClick={onCompileNow}
           disabled={!selectedFile || isCompiling}
@@ -204,7 +209,7 @@ export default function Toolbar({
           }`}
         >
           <IconRefresh spin={isCompiling} />
-          {isCompiling ? 'Compiling…' : 'Compile'}
+          <span className="hidden lg:inline">{isCompiling ? 'Compiling…' : 'Compile'}</span>
         </button>
 
         <button
@@ -222,18 +227,18 @@ export default function Toolbar({
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          Versions
+          <span className="hidden lg:inline">Versions</span>
         </button>
 
-        <div ref={shareWrapRef} className="relative">
+        <div ref={shareWrapRef} className="relative shrink-0">
           <button
             onClick={() => setIsShareOpen((p) => !p)}
             title="Share this project"
-            className="btn-primary text-xs px-3 py-1.5 rounded-lg"
+            className="btn-primary text-xs px-3 py-1.5 rounded-lg whitespace-nowrap"
             style={{ borderRadius: 8 }}
           >
             <IconShare />
-            Share
+            <span className="hidden md:inline">Share</span>
           </button>
 
           {isShareOpen && (
@@ -306,7 +311,7 @@ export default function Toolbar({
           }`}
         >
           {isDownloading ? <IconRefresh spin /> : <IconDown />}
-          Download PDF
+          <span className="hidden xl:inline">Download&nbsp;</span>PDF
         </button>
 
         <button
@@ -324,9 +329,9 @@ export default function Toolbar({
           AI
         </button>
 
-        <div className="h-5 w-px bg-white/10" />
+        <div className="h-5 w-px bg-white/10 hidden 2xl:block shrink-0" />
 
-        <div className="text-[10px] font-mono text-white/30 px-2">
+        <div className="hidden 2xl:block text-[10px] font-mono text-white/30 px-2 shrink-0">
           ID: {projectId?.slice(0, 8)}…
         </div>
       </div>

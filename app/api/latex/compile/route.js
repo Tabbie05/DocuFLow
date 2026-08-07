@@ -24,6 +24,25 @@ async function callLatexService(serviceUrl, content) {
   }
 }
 
+// pdflatex prefixes each error with "!" and follows it with context, ending in
+// "l.<n>" — the source line number. Pull those blocks out so the UI can lead
+// with something actionable instead of hundreds of KB of font warnings.
+function summarizeLatexLog(log) {
+  if (!log) return '';
+  const lines = log.split('\n');
+  const blocks = [];
+  for (let i = 0; i < lines.length && blocks.length < 5; i++) {
+    if (!lines[i].startsWith('!')) continue;
+    const block = [lines[i]];
+    for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+      block.push(lines[j]);
+      if (/^l\.\d+/.test(lines[j])) break;
+    }
+    blocks.push(block.join('\n'));
+  }
+  return blocks.join('\n\n');
+}
+
 export async function POST(request) {
   try {
     const body = await request.json();
@@ -83,17 +102,33 @@ export async function POST(request) {
 
     if (!response.ok) {
       const text = await response.text();
-      let errorMessage = text;
+
+      let error = 'Compilation failed';
+      let details = '';
+
       try {
-        const errorData = JSON.parse(text);
-        errorMessage = errorData.error || errorData.details || text;
+        const data = JSON.parse(text);
+        // The service sends BOTH fields:
+        //   { error: "LaTeX compilation failed", details: "<full pdflatex log>" }
+        // The old `data.error || data.details` short-circuited on the truthy
+        // `error` and threw the entire log away, which is why the UI only ever
+        // showed a one-line message with no source line numbers.
+        error = data.error || data.message || 'Compilation failed';
+        details = data.details || data.log || data.stderr || data.stdout || '';
+        if (!details && !data.error) details = text;
       } catch {
-        // keep raw text
+        details = text; // not JSON — the raw body IS the log
       }
+
+      // pdflatex logs run to hundreds of KB. Keep the tail: that's where the
+      // "! ..." lines and the l.<n> source references live.
+      const MAX_LOG = 12_000;
+      if (details.length > MAX_LOG) {
+        details = `… [${details.length - MAX_LOG} earlier characters trimmed] …\n${details.slice(-MAX_LOG)}`;
+      }
+
       return Response.json(
-        {
-          error: errorMessage || 'Compilation failed',
-        },
+        { error, details, summary: summarizeLatexLog(details) },
         { status: response.status }
       );
     }

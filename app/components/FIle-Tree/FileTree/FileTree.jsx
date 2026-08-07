@@ -26,7 +26,7 @@ export default function FileTree({ projectId, onFileSelect }) {
   };
 
   return (
-    <div className="h-full flex flex-col text-white/90">
+    <div className="flex-1 min-h-0 flex flex-col text-white/90">
       {/* Header */}
       <div className="px-3 py-3 border-b border-white/5">
         <div className="flex items-center justify-between mb-3">
@@ -53,7 +53,7 @@ export default function FileTree({ projectId, onFileSelect }) {
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-auto p-2">
+      <div className="flex-1 min-h-0 overflow-auto p-2">
         {loading && (
           <div className="flex items-center justify-center py-8 text-xs text-white/45">
             <span className="h-3 w-3 mr-2 rounded-full border-2 border-violet-400/40 border-t-violet-400 animate-spin" />

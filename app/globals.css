@@ -293,3 +293,32 @@ body {
 
 /* Allow overflow on app pages but keep editor pages contained */
 .allow-scroll { overflow: auto !important; }
+
+/* ========== LAYOUT LOCK ==========
+   App-shell containers that must never scroll.
+
+   `overflow: hidden` only clips visually — the box is still a scroll
+   container, so scrollIntoView(), element.focus() and Chrome's scroll
+   anchoring can all slide it, which is what pushed the toolbar and the
+   pane headers out of view. `overflow: clip` is not a scroll container
+   at all, so those APIs physically cannot move it.
+
+   The fallback lives in its own rule behind @supports: written as two
+   declarations in one block, the CSS minifier drops `hidden` as redundant
+   and older browsers are left with no overflow rule at all. */
+.layout-clip {
+  overflow: hidden;      /* fallback for browsers without `clip` */
+  overflow-anchor: none; /* no scroll anchoring on the fallback path */
+}
+
+@supports (overflow: clip) {
+  .layout-clip { overflow: clip; } /* non-scrollable box */
+}
+
+/* Document-level lock, scoped to the editor route only. */
+html:has(.editor-shell),
+html:has(.editor-shell) body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}

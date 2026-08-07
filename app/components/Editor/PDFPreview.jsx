@@ -4,6 +4,7 @@ export default function PDFPreview({
   pdfUrl,
   isCompiling,
   error,
+  errorDetails,
   compilesCount,
 }) {
   return (
@@ -26,7 +27,7 @@ export default function PDFPreview({
       </div>
 
       {/* ============ PREVIEW BODY ============ */}
-      <div className="flex-1 overflow-auto bg-[#1a1a22]">
+      <div className="flex-1 min-h-0 overflow-auto bg-[#1a1a22]">
         {isCompiling ? (
           <div className="flex flex-col items-center justify-center h-full">
             <div className="relative">
@@ -39,12 +40,43 @@ export default function PDFPreview({
             <p className="text-white/40 text-xs">Usually 5–20 seconds</p>
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center justify-center h-full px-4 max-w-lg mx-auto">
+          <div className="flex flex-col items-center justify-start h-full overflow-auto px-4 py-6 max-w-2xl mx-auto">
             <div className="text-4xl mb-3">⚠️</div>
             <h3 className="text-red-300 text-base font-bold mb-3">Compilation Failed</h3>
-            <div className="bg-red-500/10 border border-red-400/30 rounded-xl p-3 text-sm text-red-200 w-full mb-4 backdrop-blur-md">
+            <div className="bg-red-500/10 border border-red-400/30 rounded-xl p-3 text-sm text-red-200 w-full mb-3 backdrop-blur-md">
               <pre className="whitespace-pre-wrap text-xs">{error}</pre>
             </div>
+
+            {errorDetails?.summary && (
+              <div className="bg-black/40 border border-red-400/25 rounded-xl p-3 w-full mb-3">
+                <p className="text-[10px] uppercase tracking-wider text-red-300/70 font-semibold mb-1.5">
+                  pdflatex errors
+                </p>
+                <pre className="whitespace-pre-wrap font-mono text-[11px] text-red-100/90 max-h-40 overflow-auto">
+                  {errorDetails.summary}
+                </pre>
+              </div>
+            )}
+
+            {errorDetails?.log && (
+              <details className="w-full mb-4 bg-white/5 border border-white/10 rounded-xl">
+                <summary className="cursor-pointer select-none px-3 py-2 text-xs text-white/70 hover:text-white">
+                  Full compile log ({errorDetails.log.length.toLocaleString()} chars)
+                </summary>
+                <div className="px-3 pb-3">
+                  <pre className="whitespace-pre-wrap font-mono text-[10px] text-white/55 max-h-64 overflow-auto">
+                    {errorDetails.log}
+                  </pre>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(errorDetails.log)}
+                    className="mt-2 text-[11px] text-cyan-300 hover:text-cyan-200 transition-colors"
+                  >
+                    Copy log
+                  </button>
+                </div>
+              </details>
+            )}
+
             <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-sm text-white/70 w-full backdrop-blur-md">
               <p className="font-semibold mb-1.5 text-xs text-white/85">Common Fixes</p>
               <ul className="space-y-1 text-xs">

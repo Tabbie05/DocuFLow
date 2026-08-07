@@ -1,5 +1,5 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import FileActions from '../../../components/FIle-Tree/FileActions/FIleActions';
 import { normalizeFileName, getInitialContentFor } from '@/lib/latexBoilerplate';
 
@@ -8,6 +8,18 @@ export default function FileNode({ file, files, addItem, deleteItem, onFileSelec
   const [addingType, setAddingType] = useState(null);
   const [newName, setNewName] = useState('');
   const [isSelected, setIsSelected] = useState(false);
+  const newNameInputRef = useRef(null);
+
+  // autoFocus (and a bare focus()) scrolls every scrollable ancestor, which
+  // slid the whole app shell up under the toolbar. Focus without scrolling,
+  // then reveal the input inside the file list only.
+  useEffect(() => {
+    if (!addingType) return;
+    const el = newNameInputRef.current;
+    if (!el) return;
+    el.focus({ preventScroll: true });
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [addingType]);
 
   const children = files.filter(f => f.parentId === file._id);
   const isFolder = file.type === 'folder';
@@ -79,7 +91,7 @@ export default function FileNode({ file, files, addItem, deleteItem, onFileSelec
         <div className="ml-5 my-1.5 flex gap-1 items-center bg-white/[0.04] border border-white/10 rounded-lg p-1.5 backdrop-blur-md">
           <span className="text-xs">{addingType === 'file' ? '📄' : '📁'}</span>
           <input
-            autoFocus
+            ref={newNameInputRef}
             type="text"
             className="flex-grow bg-transparent text-white px-1.5 py-0.5 text-xs outline-none placeholder-white/30"
             placeholder={`${addingType} name`}
