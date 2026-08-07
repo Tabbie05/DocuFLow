@@ -104,29 +104,33 @@ export default function AIPanel({ existingContent, onLatexGenerated, isVisible, 
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#0a0a10] text-white">
+    <div className="relative h-full flex flex-col bg-[#0a0a10] text-white">
+      {/* Floating close button — guaranteed visible regardless of layout */}
+      <button
+        onClick={onClose}
+        title="Close AI assistant"
+        className="absolute top-3 right-3 z-20 shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold text-white px-3 py-1.5 rounded-lg border border-fuchsia-400/60 bg-fuchsia-500/30 hover:bg-fuchsia-500/45 hover:border-fuchsia-300/80 transition-colors shadow-lg shadow-fuchsia-500/30"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+        </svg>
+        Close
+      </button>
+
       {/* ===== Header ===== */}
-      <div className="relative h-11 flex items-center justify-between px-4 border-b border-white/5 bg-gradient-to-r from-[#0a0a0e] via-[#0d0a14] to-[#0a0a0e]">
+      <div className="relative shrink-0 h-14 flex items-center px-4 border-b border-white/10 bg-gradient-to-r from-violet-950/40 via-fuchsia-950/30 to-[#0a0a0e]">
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-fuchsia-500/40 to-transparent" />
         <div className="flex items-center gap-2.5">
-          <div className="h-6 w-6 rounded-md bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400 shadow-md shadow-fuchsia-500/30 flex items-center justify-center">
-            <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="h-7 w-7 rounded-md bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400 shadow-md shadow-fuchsia-500/30 flex items-center justify-center">
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           </div>
           <div>
-            <h3 className="text-xs font-semibold text-white tracking-tight">AI Assistant</h3>
-            <p className="text-[10px] text-white/40">LaTeX → Editor → PDF</p>
+            <h3 className="text-sm font-semibold text-white tracking-tight leading-tight">AI Assistant</h3>
+            <p className="text-[10px] text-white/45">LaTeX → Editor → PDF</p>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          className="text-white/45 hover:text-white transition-colors p-1 rounded-md hover:bg-white/5"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
       </div>
 
       {/* ===== Body ===== */}
@@ -197,7 +201,7 @@ export default function AIPanel({ existingContent, onLatexGenerated, isVisible, 
       </div>
 
       {/* ===== Input ===== */}
-      <div className="border-t border-white/5 bg-gradient-to-r from-[#0a0a0e] via-[#0d0a14] to-[#0a0a0e] p-3 space-y-2">
+      <div className="shrink-0 border-t border-white/5 bg-[#0a0a0e] p-3 space-y-2">
         {history.length > 0 && (
           <div className="flex gap-1.5 flex-wrap">
             {QUICK_ACTIONS.map((action) => (

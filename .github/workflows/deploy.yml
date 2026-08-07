@@ -1,0 +1,57 @@
+name: Deploy DocuFlow to Cloud Run
+
+# Kab chale: master branch pe push hote hi
+on:
+  push:
+    branches: [master]
+
+# Sab jagah reuse hone wale values
+env:
+  PROJECT_ID: project-1a090420-36d8-4adf-98c
+  REGION: asia-south1
+  SERVICE: docuflow
+  IMAGE: asia-south1-docker.pkg.dev/project-1a090420-36d8-4adf-98c/docuflow-repo/docuflow
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest   # GitHub ka free VM (amd64 — isliye ARM/OCI wali problem yahan nahi!)
+
+    permissions:
+      contents: read
+      id-token: write        # ZAROORI: isse GitHub OIDC token bana ke deta hai (WIF ke liye)
+
+    steps:
+      # 1. Repo ka code laao
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. GCP se authenticate (WIF — keyless, koi key nahi)
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/279099731399/locations/global/workloadIdentityPools/docuflow-github-pool/providers/docuflow-github-provider
+          service_account: docuflow-github-deployer@project-1a090420-36d8-4adf-98c.iam.gserviceaccount.com
+
+      # 3. gcloud CLI setup
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      # 4. Docker ko Artifact Registry ke liye login karao
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker asia-south1-docker.pkg.dev --quiet
+
+      # 5. Image banao (do tags: unique commit-sha + latest)
+      - name: Build Docker image
+        run: docker build -t $IMAGE:${{ github.sha }} -t $IMAGE:latest .
+
+      # 6. Image ko Artifact Registry pe push karo
+      - name: Push Docker image
+        run: docker push --all-tags $IMAGE
+
+      # 7. Cloud Run pe deploy (secrets/env service mein already set hain — preserve honge)
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: docuflow
+          region: asia-south1
+          image: asia-south1-docker.pkg.dev/project-1a090420-36d8-4adf-98c/docuflow-repo/docuflow:${{ github.sha }}

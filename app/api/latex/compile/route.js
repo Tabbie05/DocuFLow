@@ -90,11 +90,9 @@ export async function POST(request) {
       } catch {
         // keep raw text
       }
-      const isCold = COLD_START_STATUSES.has(response.status);
       return Response.json(
         {
           error: errorMessage || 'Compilation failed',
-          ...(isCold && { hint: 'LaTeX service is starting up. Please try again in a few seconds.' }),
         },
         { status: response.status }
       );

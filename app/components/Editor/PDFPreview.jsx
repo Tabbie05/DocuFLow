@@ -4,13 +4,8 @@ export default function PDFPreview({
   pdfUrl,
   isCompiling,
   error,
-  onToggleVersions,
-  showVersions,
   compilesCount,
 }) {
-  const navBtn =
-    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border backdrop-blur-md transition-all';
-
   return (
     <div className="h-full flex flex-col bg-[#0a0a10]">
       {/* ============ TOP NAVBAR ============ */}
@@ -27,23 +22,6 @@ export default function PDFPreview({
               #{compilesCount}
             </span>
           )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onToggleVersions}
-            title="Version history"
-            className={`${navBtn} ${
-              showVersions
-                ? 'bg-violet-500/20 border-violet-400/40 text-violet-100'
-                : 'bg-white/5 border-white/10 text-white/80 hover:bg-white/10 hover:text-white'
-            }`}
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Versions
-          </button>
         </div>
       </div>
 

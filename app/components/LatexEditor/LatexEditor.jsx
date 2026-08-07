@@ -6,7 +6,17 @@ import AIPanel from '../../components/AI/AIPanel';
 import useAutoSave from '../../../hooks/useAutoSave';
 import { io } from "socket.io-client";
 
-export default function LatexEditor({ file, onSave, onToggleVersionsRef, compileNowRef, liveContentRef, onCompilingChange, showAIPanel = false, onAIPanelClose }) {
+export default function LatexEditor({
+  file,
+  onSave,
+  compileNowRef,
+  liveContentRef,
+  onCompilingChange,
+  showAIPanel = false,
+  onAIPanelClose,
+  showVersions = false,
+  onVersionsClose,
+}) {
   // ================= STATE =================
   const [content, setContent] = useState(file.content || '');
 
@@ -24,7 +34,7 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
 
   // VERSION HISTORY
   const [versions, setVersions] = useState([]);
-  const [showVersions, setShowVersions] = useState(false);
+  const [savingSnapshot, setSavingSnapshot] = useState(false);
 
   // UI LAYOUT
   const [splitPosition, setSplitPosition] = useState(50);
@@ -35,6 +45,12 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
   const containerRef = useRef(null);
   const isRemoteChange = useRef(false);
   const editorApiRef = useRef(null);
+
+  // Circuit breaker: pause auto-compile after consecutive failures so a
+  // bad doc can't keep hammering (and crashing) the upstream service.
+  const failureCount = useRef(0);
+  const FAILURE_LIMIT = 2;
+  const [autoCompilePaused, setAutoCompilePaused] = useState(false);
 
   // ================= EDITOR ACTIONS =================
   const withEditor = (fn) => {
@@ -60,6 +76,26 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
   const handleUndo = () => withEditor((editor) => editor.trigger('toolbar', 'undo', null));
   const handleRedo = () => withEditor((editor) => editor.trigger('toolbar', 'redo', null));
   const handleSearch = () => withEditor((editor) => editor.getAction('actions.find')?.run());
+  const handleInsertIcon = (latex) => {
+    withEditor((editor) => {
+      const selection = editor.getSelection();
+      editor.executeEdits('toolbar', [{ range: selection, text: `${latex} \\; ` }]);
+      // Make sure fontawesome5 is in the preamble — add it once if missing
+      const model = editor.getModel();
+      const full = model.getValue();
+      if (!/\\usepackage\{fontawesome5\}/.test(full)) {
+        const docclassMatch = full.match(/\\documentclass[^\n]*\n/);
+        if (docclassMatch) {
+          const pos = docclassMatch.index + docclassMatch[0].length;
+          const lineCol = model.getPositionAt(pos);
+          editor.executeEdits('toolbar', [{
+            range: new (editorApiRef.current.monaco.Range)(lineCol.lineNumber, lineCol.column, lineCol.lineNumber, lineCol.column),
+            text: '\\usepackage{fontawesome5}\n',
+          }]);
+        }
+      }
+    });
+  };
   const handleBulletList = () => {
     withEditor((editor) => {
       const selection = editor.getSelection();
@@ -90,7 +126,7 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
     }
   };
 
-  const saveVersion = async (contentToSave) => {
+  const saveVersion = async (contentToSave, label = 'Auto-save') => {
     try {
       const res = await fetch('/api/versions/save', {
         method: 'POST',
@@ -98,50 +134,45 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
         body: JSON.stringify({
           fileId: file._id,
           content: contentToSave,
-          label: 'Auto-save'
+          label,
         }),
       });
-      
+
       if (res.ok) {
-        console.log('📸 Version saved');
-        // Reload versions if panel is open
-        if (showVersions) {
-          loadVersions();
-        }
-      } else {
-        console.error("Version save failed:", res.status);
+        if (showVersions) loadVersions();
       }
     } catch (err) {
-      console.error("Failed to save version", err);
+      console.error('Failed to save version', err);
     }
+  };
+
+  const handleManualSnapshot = async () => {
+    if (savingSnapshot) return;
+    setSavingSnapshot(true);
+    await saveVersion(content, `Snapshot · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+    await loadVersions();
+    setSavingSnapshot(false);
   };
 
   const restoreVersion = (oldContent) => {
     setContent(oldContent);
-    lastCompiledContent.current = "";
-    saveVersion(oldContent);
-    setShowVersions(false); // Close panel after restore
+    lastCompiledContent.current = '';
+    saveVersion(oldContent, 'Restored');
+    onVersionsClose?.();
   };
 
-  const toggleVersionsPanel = () => {
-    const newState = !showVersions;
-    setShowVersions(newState);
-    if (newState) {
-      loadVersions();
-    }
-  };
-
-  // expose toggle to parent (Toolbar button)
+  // Load versions whenever the parent opens the panel
   useEffect(() => {
-    if (onToggleVersionsRef) {
-      onToggleVersionsRef.current = toggleVersionsPanel;
-    }
+    if (showVersions) loadVersions();
   }, [showVersions]);
 
   // expose manual compile to parent so the Toolbar's "Compile" button can fire it
   useEffect(() => {
     if (compileNowRef) {
       compileNowRef.current = () => {
+        // Manual click resets the circuit breaker — user explicitly asked to retry
+        failureCount.current = 0;
+        setAutoCompilePaused(false);
         // Bypass debounce + the "same as last compiled" guard
         lastCompiledContent.current = "";
         if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
@@ -236,6 +267,9 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
   useEffect(() => {
     if (isRemoteChange.current) return;
     if (content === lastCompiledContent.current) return;
+    // Circuit breaker — once we've failed FAILURE_LIMIT times in a row,
+    // stop auto-compiling. User must click Compile to resume.
+    if (autoCompilePaused) return;
 
     if (compileTimeoutRef.current) clearTimeout(compileTimeoutRef.current);
 
@@ -249,7 +283,7 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
     }, 2000);
 
     return () => clearTimeout(compileTimeoutRef.current);
-  }, [content]);
+  }, [content, autoCompilePaused]);
 
   // ================= RESIZE HANDLER =================
   useEffect(() => {
@@ -305,11 +339,20 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
       setPdfBlob(blob);
       lastCompiledContent.current = codeToCompile;
       setCompilesCount(prev => prev + 1);
+      failureCount.current = 0;
+      if (autoCompilePaused) setAutoCompilePaused(false);
     } catch (err) {
       console.error("Compilation error:", err);
-      setError(err.message);
+      failureCount.current += 1;
+      const willPause = failureCount.current >= FAILURE_LIMIT;
+      setError(
+        willPause
+          ? `${err.message}\n\n⏸ Auto-compile paused after ${FAILURE_LIMIT} failures. Fix the document and click Compile to resume.`
+          : err.message
+      );
       setPdfUrl(null);
       setPdfBlob(null);
+      if (willPause) setAutoCompilePaused(true);
     } finally {
       setIsCompiling(false);
       onCompilingChange?.(false);
@@ -372,7 +415,7 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
   return (
     <div ref={containerRef} className="flex h-full">
       {/* ===== EDITOR ===== */}
-      <div style={{ width: `${editorWidth}%` }} className="flex flex-col border-r border-white/5">
+      <div style={{ width: `${editorWidth}%` }} className="h-full flex flex-col min-h-0 border-r border-white/5">
         <EditorToolbar
           isConnected={isConnected}
           activeUsers={activeUsers}
@@ -382,14 +425,17 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
           onRedo={handleRedo}
           onBulletList={handleBulletList}
           onSearch={handleSearch}
+          onInsertIcon={handleInsertIcon}
         />
 
-        <MonacoEditor
-          value={content}
-          onChange={handleEditorChange}
-          language="latex"
-          editorApiRef={editorApiRef}
-        />
+        <div className="flex-1 min-h-0">
+          <MonacoEditor
+            value={content}
+            onChange={handleEditorChange}
+            language="latex"
+            editorApiRef={editorApiRef}
+          />
+        </div>
       </div>
 
       {/* RESIZER */}
@@ -399,20 +445,18 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
       />
 
       {/* PDF PREVIEW */}
-      <div style={{ width: `${pdfWidth}%` }} className="border-r border-white/5">
+      <div style={{ width: `${pdfWidth}%` }} className="h-full flex flex-col min-h-0 border-r border-white/5">
         <PDFPreview
           pdfUrl={pdfUrl}
           isCompiling={isCompiling}
           error={error}
-          onToggleVersions={toggleVersionsPanel}
-          showVersions={showVersions}
           compilesCount={compilesCount}
         />
       </div>
 
       {/* AI PANEL */}
       {showAIPanel && (
-        <div style={{ width: `${aiWidth}%` }}>
+        <div style={{ width: `${aiWidth}%` }} className="h-full flex flex-col min-h-0 border-l border-white/5">
           <AIPanel
             existingContent={content}
             onLatexGenerated={handleLatexGenerated}
@@ -425,73 +469,142 @@ export default function LatexEditor({ file, onSave, onToggleVersionsRef, compile
       {/* VERSION HISTORY PANEL */}
       {showVersions && (
         <div
-          style={{ width: '24%' }}
+          style={{ width: '320px' }}
           className="absolute right-0 top-0 bottom-0 z-50 flex flex-col bg-[#0a0a10]/95 backdrop-blur-xl border-l border-white/5 shadow-2xl shadow-black/60 animate-slide-in-right"
         >
-          <div className="relative h-11 flex items-center justify-between px-4 border-b border-white/5 bg-gradient-to-r from-[#0a0a0e] via-[#0d0a14] to-[#0a0a0e]">
-            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-violet-500/40 to-transparent" />
-            <div className="flex items-center gap-2">
-              <svg className="w-3.5 h-3.5 text-violet-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-xs font-semibold text-white tracking-tight">Version History</span>
-              {versions.length > 0 && (
-                <span className="text-[10px] font-mono text-white/35 px-1.5 py-0.5 rounded-md bg-white/5 border border-white/10">
-                  {versions.length}
-                </span>
-              )}
+          {/* Floating close button — always on top */}
+          <button
+            onClick={() => onVersionsClose?.()}
+            title="Close version history"
+            className="absolute top-3 right-3 z-20 shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold text-white px-3 py-1.5 rounded-lg border border-violet-400/60 bg-violet-500/30 hover:bg-violet-500/45 hover:border-violet-300/80 transition-colors shadow-lg shadow-violet-500/30"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            Close
+          </button>
+          {/* HEADER */}
+          <div className="relative shrink-0 px-4 pt-4 pb-3 border-b border-white/10 bg-gradient-to-b from-violet-950/40 via-[#11091a] to-[#0a0a0e]">
+            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-violet-500/50 to-transparent" />
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-500 via-fuchsia-500 to-cyan-400 shadow-md shadow-violet-500/30 flex items-center justify-center">
+                  <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-white leading-tight">Version history</p>
+                  <p className="text-[10px] text-white/40 font-mono mt-0.5">
+                    {versions.length} {versions.length === 1 ? 'snapshot' : 'snapshots'}
+                  </p>
+                </div>
+              </div>
+              {/* spacer to balance the floating Close button on the right */}
+              <div className="w-20" aria-hidden="true" />
             </div>
+
             <button
-              onClick={() => setShowVersions(false)}
-              className="text-white/45 hover:text-white transition-colors p-1 rounded-md hover:bg-white/5"
+              onClick={handleManualSnapshot}
+              disabled={savingSnapshot}
+              className="mt-3 w-full inline-flex items-center justify-center gap-1.5 text-[11px] font-medium px-3 py-2 rounded-lg bg-gradient-to-r from-violet-500/20 to-fuchsia-500/20 border border-violet-400/30 text-violet-100 hover:from-violet-500/30 hover:to-fuchsia-500/30 transition-all disabled:opacity-50"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              {savingSnapshot ? (
+                <>
+                  <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Saving snapshot…
+                </>
+              ) : (
+                <>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Save snapshot now
+                </>
+              )}
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-2 space-y-2">
+          {/* LIST */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {versions.length === 0 ? (
               <div className="p-6 text-center">
-                <div className="mx-auto h-12 w-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-3">
-                  <svg className="w-5 h-5 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="mx-auto h-14 w-14 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center mb-4">
+                  <svg className="w-6 h-6 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
                 </div>
-                <p className="text-white/70 text-xs font-medium">No versions yet</p>
-                <p className="text-white/35 text-[11px] mt-1.5 leading-snug">
-                  Versions are saved automatically as you edit.
+                <p className="text-white/75 text-xs font-medium">No snapshots yet</p>
+                <p className="text-white/40 text-[11px] mt-1.5 leading-snug">
+                  Versions save automatically as you edit, or hit "Save snapshot" to capture this moment.
                 </p>
               </div>
             ) : (
-              versions.map((v) => (
-                <button
-                  key={v._id}
-                  onClick={() => restoreVersion(v.content)}
-                  className="w-full text-left p-3 rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 hover:border-violet-400/40 backdrop-blur-md transition-all group"
-                >
-                  <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-[11px] font-medium text-white/80">
-                      {new Date(v.createdAt).toLocaleString()}
-                    </p>
-                    <span className="text-[10px] text-violet-300 opacity-0 group-hover:opacity-100 transition-opacity">
-                      Restore →
-                    </span>
+              versions.map((v, i) => {
+                const date = new Date(v.createdAt);
+                const isLatest = i === 0;
+                const dateStr = date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                const timeStr = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                return (
+                  <div
+                    key={v._id}
+                    className={`relative p-3 rounded-xl border backdrop-blur-md transition-all group ${
+                      isLatest
+                        ? 'border-violet-400/40 bg-gradient-to-br from-violet-500/10 to-fuchsia-500/5'
+                        : 'border-white/10 bg-white/5 hover:border-violet-400/30'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-2 gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-semibold text-white">{dateStr}</span>
+                          <span className="text-white/30 text-[10px]">·</span>
+                          <span className="text-[11px] font-mono text-white/65">{timeStr}</span>
+                          {isLatest && (
+                            <span className="text-[9px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-emerald-400/20 text-emerald-200 border border-emerald-400/30">
+                              Latest
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 flex items-center gap-1.5 text-[10px]">
+                          <span className="text-fuchsia-300 font-medium">
+                            {v.userId?.username || 'Guest'}
+                          </span>
+                          <span className="text-white/25">·</span>
+                          <span className="text-white/45 font-mono">
+                            {v.content.length.toLocaleString()} chars
+                          </span>
+                        </div>
+                        {v.label && (
+                          <p className="text-[10px] text-white/45 mt-1.5 italic truncate">
+                            {v.label}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => restoreVersion(v.content)}
+                      className="w-full mt-1 inline-flex items-center justify-center gap-1 text-[10px] font-semibold px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-white/75 hover:bg-violet-500/20 hover:border-violet-400/40 hover:text-violet-100 transition-all"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                      </svg>
+                      Restore this version
+                    </button>
                   </div>
-                  <div className="flex items-center gap-2 text-[10px]">
-                    <span className="text-fuchsia-300 font-medium">
-                      {v.userId?.username || 'Guest'}
-                    </span>
-                    <span className="text-white/25">•</span>
-                    <span className="text-white/50 font-mono">{v.content.length} chars</span>
-                  </div>
-                  {v.label && (
-                    <p className="text-[10px] text-white/40 mt-1.5 italic">{v.label}</p>
-                  )}
-                </button>
-              ))
+                );
+              })
             )}
+          </div>
+
+          {/* FOOTER NOTE */}
+          <div className="px-4 py-2.5 border-t border-white/5 bg-[#0a0a0e]">
+            <p className="text-[10px] text-white/35 leading-snug">
+              Restoring creates a new snapshot — your current draft isn't lost.
+            </p>
           </div>
         </div>
       )}
@@ -518,9 +631,78 @@ function EditorToolbar({
   onRedo,
   onBulletList,
   onSearch,
+  onInsertIcon,
 }) {
   const btn =
     'inline-flex items-center justify-center h-7 w-7 rounded-md text-white/70 hover:text-white hover:bg-white/10 border border-transparent hover:border-white/10 transition-all';
+
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const iconPickerRef = useRef(null);
+
+  useEffect(() => {
+    if (!iconPickerOpen) return;
+    const close = (e) => {
+      if (iconPickerRef.current && !iconPickerRef.current.contains(e.target)) {
+        setIconPickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [iconPickerOpen]);
+
+  // Curated, verified-working FA icons (tested on this LaTeX service).
+  // Each entry: [LaTeX command, label, unicode-ish preview].
+  const ICON_GROUPS = [
+    {
+      label: 'Contact',
+      items: [
+        ['\\faEnvelope', 'Email', '✉'],
+        ['\\faAt', 'At', '@'],
+        ['\\faPhone', 'Phone', '☎'],
+        ['\\faPaperPlane', 'Send', '➤'],
+        ['\\faMapMarker', 'Location', '📍'],
+        ['\\faCalendar', 'Calendar', '📅'],
+        ['\\faClock', 'Clock', '⏰'],
+        ['\\faBuilding', 'Building', '🏢'],
+      ],
+    },
+    {
+      label: 'Web & Links',
+      items: [
+        ['\\faGlobe', 'Globe', '🌐'],
+        ['\\faLink', 'Link', '🔗'],
+        ['\\faDownload', 'Download', '⬇'],
+      ],
+    },
+    {
+      label: 'Brands',
+      items: [
+        ['\\faGithub', 'GitHub', 'GH'],
+        ['\\faGitlab', 'GitLab', 'GL'],
+        ['\\faBitbucket', 'Bitbucket', 'BB'],
+        ['\\faLinkedin', 'LinkedIn', 'in'],
+        ['\\faTwitter', 'Twitter', 'X'],
+        ['\\faFacebook', 'Facebook', 'fb'],
+        ['\\faInstagram', 'Instagram', 'ig'],
+        ['\\faYoutube', 'YouTube', 'yt'],
+        ['\\faStackOverflow', 'Stack Overflow', 'SO'],
+        ['\\faMedium', 'Medium', 'M'],
+      ],
+    },
+    {
+      label: 'Work & Education',
+      items: [
+        ['\\faBriefcase', 'Briefcase', '💼'],
+        ['\\faGraduationCap', 'Education', '🎓'],
+        ['\\faFile', 'File', '📄'],
+        ['\\faFilePdf', 'PDF', 'pdf'],
+        ['\\faCode', 'Code', '<>'],
+        ['\\faTerminal', 'Terminal', '$_'],
+        ['\\faStar', 'Star', '★'],
+        ['\\faCheckCircle', 'Check', '✓'],
+      ],
+    },
+  ];
 
   return (
     <div className="relative h-11 flex items-center justify-between px-3 border-b border-white/5 bg-gradient-to-r from-[#0a0a0e] via-[#0d0a14] to-[#0a0a0e]">
@@ -583,6 +765,60 @@ function EditorToolbar({
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
         </button>
+
+        <div className="h-4 w-px bg-white/10 mx-1" />
+
+        {/* ICON PICKER */}
+        <div ref={iconPickerRef} className="relative">
+          <button
+            onClick={() => setIconPickerOpen((p) => !p)}
+            title="Insert icon (verified-working FontAwesome icons)"
+            className={`${btn} ${iconPickerOpen ? 'bg-white/10 border-white/15 text-white' : ''}`}
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+
+          {iconPickerOpen && (
+            <div className="absolute right-0 top-full mt-2 w-80 z-50 rounded-xl border border-white/10 bg-[#0a0a10]/95 backdrop-blur-xl shadow-2xl shadow-black/60 p-3 animate-share-pop">
+              <div className="absolute -top-1.5 right-3 h-3 w-3 rotate-45 bg-[#0a0a10]/95 border-t border-l border-white/10" />
+              <div className="flex items-center justify-between mb-2 px-1">
+                <p className="text-xs font-semibold text-white">Insert icon</p>
+                <span className="text-[10px] text-white/35 font-mono">FontAwesome 5</span>
+              </div>
+              <p className="text-[10px] text-white/45 leading-snug mb-2 px-1">
+                Adds <code className="text-white/65">\usepackage{'{fontawesome5}'}</code> automatically if missing.
+              </p>
+              <div className="max-h-72 overflow-y-auto pr-1 space-y-3">
+                {ICON_GROUPS.map((group) => (
+                  <div key={group.label}>
+                    <p className="text-[10px] uppercase tracking-wider text-white/35 font-semibold mb-1.5 px-1">{group.label}</p>
+                    <div className="grid grid-cols-4 gap-1">
+                      {group.items.map(([cmd, label, preview]) => (
+                        <button
+                          key={cmd}
+                          onClick={() => {
+                            onInsertIcon?.(cmd);
+                            setIconPickerOpen(false);
+                          }}
+                          title={`${cmd} — ${label}`}
+                          className="flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg bg-white/5 border border-white/10 hover:bg-violet-500/20 hover:border-violet-400/40 transition-all group"
+                        >
+                          <span className="text-base leading-none text-white/85 group-hover:text-white">{preview}</span>
+                          <span className="text-[9px] text-white/45 group-hover:text-white/70 leading-tight">{label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[9px] text-white/30 mt-2 px-1 leading-snug">
+                All icons here are verified to compile in this project&apos;s LaTeX service.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

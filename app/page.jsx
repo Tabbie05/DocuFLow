@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 const FEATURES = [
@@ -49,9 +50,11 @@ const STATS = [
 ];
 
 export default function HomePage() {
+  const router = useRouter();
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [activeFeature, setActiveFeature] = useState('edit');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     fetch('/api/me')
@@ -59,6 +62,24 @@ export default function HomePage() {
       .then(u => { setUser(u && u.userId ? u : null); setAuthChecked(true); })
       .catch(() => setAuthChecked(true));
   }, []);
+
+  const handleNewProject = async () => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: `Untitled project · ${new Date().toLocaleDateString()}` }),
+      });
+      if (!res.ok) throw new Error('Could not create project');
+      const project = await res.json();
+      router.push(`/project/${project._id}`);
+    } catch (err) {
+      console.error(err);
+      setCreating(false);
+    }
+  };
 
   const feature = FEATURES.find(f => f.id === activeFeature);
 
@@ -77,7 +98,12 @@ export default function HomePage() {
         </div>
         <div className="flex items-center gap-3">
           {authChecked && (user ? (
-            <Link href="/project/64f3a1e2b7c8d9f123456789" className="btn-primary text-sm">Open editor →</Link>
+            <>
+              <Link href="/projects" className="btn-ghost text-sm hidden sm:inline-flex">My projects</Link>
+              <button onClick={handleNewProject} disabled={creating} className="btn-primary text-sm">
+                {creating ? 'Creating…' : 'New project →'}
+              </button>
+            </>
           ) : (
             <>
               <Link href="/login" className="btn-ghost text-sm hidden sm:inline-flex">Log in</Link>
@@ -107,9 +133,12 @@ export default function HomePage() {
 
           <div className="mt-10 flex flex-col sm:flex-row gap-3 animate-fade-up delay-300">
             {authChecked && (user ? (
-              <Link href="/project/64f3a1e2b7c8d9f123456789" className="btn-primary">
-                Open your editor <span>→</span>
-              </Link>
+              <>
+                <button onClick={handleNewProject} disabled={creating} className="btn-primary">
+                  {creating ? 'Creating…' : 'Start a new project'} <span>→</span>
+                </button>
+                <Link href="/projects" className="btn-ghost">Open existing</Link>
+              </>
             ) : (
               <>
                 <Link href="/register" className="btn-primary">Start writing free <span>→</span></Link>
@@ -273,7 +302,12 @@ export default function HomePage() {
           </p>
           <div className="relative mt-9 flex flex-col sm:flex-row gap-3 justify-center">
             {authChecked && (user ? (
-              <Link href="/project/64f3a1e2b7c8d9f123456789" className="btn-primary">Open your editor →</Link>
+              <>
+                <button onClick={handleNewProject} disabled={creating} className="btn-primary">
+                  {creating ? 'Creating…' : 'New project →'}
+                </button>
+                <Link href="/projects" className="btn-ghost">My projects</Link>
+              </>
             ) : (
               <>
                 <Link href="/register" className="btn-primary">Create free account →</Link>

@@ -12,6 +12,7 @@ export default function ProjectPage() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [showAIPanel, setShowAIPanel] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
 
   useEffect(() => {
     fetch('/api/me')
@@ -42,7 +43,21 @@ export default function ProjectPage() {
         projectId={projectId}
         selectedFile={selectedFile}
         showAIPanel={showAIPanel}
-        onToggleAI={() => setShowAIPanel((p) => !p)}
+        onToggleAI={() => {
+          setShowAIPanel((p) => {
+            const next = !p;
+            if (next) setShowVersions(false);
+            return next;
+          });
+        }}
+        showVersions={showVersions}
+        onToggleVersions={() => {
+          setShowVersions((p) => {
+            const next = !p;
+            if (next) setShowAIPanel(false);
+            return next;
+          });
+        }}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -76,6 +91,8 @@ export default function ProjectPage() {
               onSave={handleFileSave}
               showAIPanel={showAIPanel}
               onAIPanelClose={() => setShowAIPanel(false)}
+              showVersions={showVersions}
+              onVersionsClose={() => setShowVersions(false)}
             />
           ) : (
             <WelcomeState />
